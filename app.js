@@ -1,8 +1,3 @@
-/* ============================================================
-   RepoReady – app.js
-   Full assessment logic + UI rendering + localStorage history
-   ============================================================ */
-
 const STORAGE_KEY   = 'repoready_last_assessment';
 const HISTORY_KEY   = 'repoready_history';
 const MAX_HISTORY   = 10;

@@ -1,5 +1,3 @@
-
-
 const STORAGE_KEY   = 'repoready_last_assessment';
 const HISTORY_KEY   = 'repoready_history';
 const MAX_HISTORY   = 10;
@@ -451,6 +449,10 @@ function renderResults(assessment) {
 
   resultDiv.innerHTML = `
     <div class="report-actions">
+      <button id="newAnalysisBtn" class="report-btn report-btn-new">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/></svg>
+        New Analysis
+      </button>
       <button id="downloadHtmlBtn" class="report-btn">📄 Download HTML Report</button>
       <button id="downloadJsonBtn" class="report-btn">💾 Download JSON Report</button>
     </div>
@@ -500,6 +502,10 @@ function renderResults(assessment) {
   resultDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   setTimeout(() => {
+    document.getElementById('newAnalysisBtn')?.addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      window.location.reload();
+    });
     document.getElementById('downloadHtmlBtn')?.addEventListener('click', () => {
       downloadFile(generateHTMLReport(assessment), `repoready-${assessment.repository.replace('/', '-')}.html`, 'text/html');
       showNotification('✅ HTML report downloaded!', 'success');

@@ -1,3 +1,8 @@
+/* ============================================================
+   RepoReady – app.js
+   Full assessment logic + UI rendering + localStorage history
+   ============================================================ */
+
 const STORAGE_KEY   = 'repoready_last_assessment';
 const HISTORY_KEY   = 'repoready_history';
 const MAX_HISTORY   = 10;
@@ -87,7 +92,14 @@ document.getElementById('tokenInput')?.addEventListener('input', function () {
   sessionStorage.setItem('rr_token', this.value);
 });
 
-/* ── localStorage Helpers ───────────────────────────────────── */
+/* ── Safe base64 decode (handles Unicode) ───────────────────── */
+function b64decode(str) {
+  try {
+    return decodeURIComponent(escape(atob(str.replace(/\n/g, ''))));
+  } catch (e) {
+    try { return atob(str.replace(/\n/g, '')); } catch (e2) { return ''; }
+  }
+}
 function getHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
   catch { return []; }
@@ -119,10 +131,9 @@ function scoreColorClass(score) {
 }
 
 function recentScoreClass(score) {
-  if (score >= 85) return 's-great';
-  if (score >= 70) return 's-good';
-  if (score >= 50) return 's-mid';
-  return 's-low';
+  if (score >= 70) return 'high';
+  if (score >= 50) return 'medium';
+  return 'low';
 }
 
 function ratingClass(rating) {
@@ -198,7 +209,7 @@ async function assessRepository(owner, repo) {
   if (hasPackageJson) {
     try {
       const r = await fetch(`${baseUrl}/contents/package.json`, { headers: hdrs });
-      if (r.ok) { const d = await r.json(); packageJsonData = JSON.parse(atob(d.content.replace(/\n/g, ''))); }
+      if (r.ok) { const d = await r.json(); packageJsonData = JSON.parse(b64decode(d.content)); }
     } catch (e) {}
   }
 
@@ -208,7 +219,7 @@ async function assessRepository(owner, repo) {
   if (readmeEntry) {
     try {
       const r = await fetch(`${baseUrl}/readme`, { headers: hdrs });
-      if (r.ok) { const d = await r.json(); readmeContent = atob(d.content.replace(/\n/g, '')); }
+      if (r.ok) { const d = await r.json(); readmeContent = b64decode(d.content); }
     } catch (e) {}
   }
 
@@ -523,7 +534,9 @@ function renderResults(assessment) {
   setTimeout(() => {
     document.getElementById('newAnalysisBtn')?.addEventListener('click', () => {
       localStorage.removeItem(STORAGE_KEY);
-      window.location.reload();
+      document.getElementById('result').innerHTML = '';
+      document.getElementById('repoInput').value = '';
+      document.querySelector('.hero').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     document.getElementById('downloadHtmlBtn')?.addEventListener('click', () => {
       downloadFile(generateHTMLReport(assessment), `repoready-${assessment.repository.replace('/', '-')}.html`, 'text/html');
@@ -550,7 +563,7 @@ function renderRecentAssessments() {
   const clockSVG = `<svg viewBox="0 0 24 24"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg>`;
 
   container.innerHTML = history.map(item => `
-    <div class="recent-row" data-repo="${item.repository}">
+    <div class="recent-card" data-repo="${item.repository}">
       <div class="recent-score ${recentScoreClass(item.overallScore)}">${item.overallScore}</div>
       <div class="recent-info">
         <div class="recent-repo">${item.repository}</div>
@@ -560,7 +573,7 @@ function renderRecentAssessments() {
     </div>`).join('');
 
   // Click to re-analyze
-  container.querySelectorAll('.recent-row').forEach(row => {
+  container.querySelectorAll('.recent-card').forEach(row => {
     row.addEventListener('click', () => {
       const repoInput = document.getElementById('repoInput');
       if (repoInput) {

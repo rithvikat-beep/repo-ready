@@ -63,6 +63,30 @@ document.getElementById('togglePill')?.addEventListener('click', function () {
   this.classList.toggle('dark');
 });
 
+/* ── GitHub Token Helpers ───────────────────────────────────── */
+function getToken() {
+  return document.getElementById('tokenInput')?.value.trim() || '';
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { 'Authorization': `token ${token}` } : {};
+}
+
+// Show/hide token toggle
+document.getElementById('tokenToggle')?.addEventListener('click', function () {
+  const inp = document.getElementById('tokenInput');
+  if (!inp) return;
+  const isHidden = inp.type === 'password';
+  inp.type = isHidden ? 'text' : 'password';
+  document.getElementById('eyeIcon').style.opacity = isHidden ? '0.4' : '1';
+});
+
+// Save token to sessionStorage so it survives soft reloads but not tab close
+document.getElementById('tokenInput')?.addEventListener('input', function () {
+  sessionStorage.setItem('rr_token', this.value);
+});
+
 /* ── localStorage Helpers ───────────────────────────────────── */
 function getHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
@@ -112,174 +136,168 @@ function ratingClass(rating) {
 /* ── GitHub API Assessment ──────────────────────────────────── */
 async function assessRepository(owner, repo) {
   const baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
+  const hdrs = authHeaders();
 
-  try {
-    // Repo info
-    const repoInfoResponse = await fetch(baseUrl);
-    if (!repoInfoResponse.ok) {
-      if (repoInfoResponse.status === 403) throw new Error('GitHub API rate limit reached. Please try again later.');
-      if (repoInfoResponse.status === 404) throw new Error(`Repository "${owner}/${repo}" not found. Make sure it exists and is public.`);
-      throw new Error(`GitHub API error: ${repoInfoResponse.status}`);
-    }
-
-    // README
-    let readmeContent = '';
-    try {
-      const r = await fetch(`${baseUrl}/readme`);
-      if (r.ok) { const d = await r.json(); readmeContent = atob(d.content); }
-    } catch (e) {}
-
-    // LICENSE
-    let licenseContent = '', hasLicense = false;
-    try {
-      let r = await fetch(`${baseUrl}/contents/LICENSE`);
-      if (!r.ok) r = await fetch(`${baseUrl}/contents/LICENSE.md`);
-      if (r.ok) { const d = await r.json(); licenseContent = atob(d.content); hasLicense = true; }
-    } catch (e) {}
-
-    // package.json
-    let packageJsonData = null;
-    try {
-      const r = await fetch(`${baseUrl}/contents/package.json`);
-      if (r.ok) { const d = await r.json(); packageJsonData = JSON.parse(atob(d.content)); }
-    } catch (e) {}
-
-    // Tests
-    let hasTests = false, testFiles = [];
-    try {
-      const r = await fetch(`${baseUrl}/contents`);
-      if (r.ok) {
-        const contents = await r.json();
-        if (Array.isArray(contents)) {
-          contents.forEach(item => {
-            if (item.type === 'dir'  && /test|tests?/i.test(item.name))  { hasTests = true; testFiles.push(item.name); }
-            if (item.type === 'file' && /test|spec/i.test(item.name))    { hasTests = true; testFiles.push(item.name); }
-          });
-        }
-      }
-    } catch (e) {}
-
-    // CI
-    let hasCI = false, ciType = null;
-    const ciPaths = [
-      '.github/workflows/ci.yml', '.github/workflows/test.yml', '.github/workflows/main.yml',
-      '.gitlab-ci.yml', '.travis.yml', '.circleci/config.yml'
-    ];
-    for (const ciPath of ciPaths) {
-      try {
-        const r = await fetch(`${baseUrl}/contents/${ciPath}`);
-        if (r.ok) {
-          hasCI = true;
-          if (ciPath.includes('github')) ciType = 'GitHub Actions';
-          else if (ciPath.includes('gitlab')) ciType = 'GitLab CI';
-          else if (ciPath.includes('travis')) ciType = 'Travis CI';
-          else ciType = 'CircleCI';
-          break;
-        }
-      } catch (e) {}
-    }
-
-    // CITATION
-    let hasCitation = false;
-    try {
-      const r = await fetch(`${baseUrl}/contents/CITATION.cff`);
-      if (r.ok) hasCitation = true;
-    } catch (e) {}
-
-    // Tags
-    let tags = [];
-    try {
-      const r = await fetch(`${baseUrl}/tags`);
-      if (r.ok) tags = await r.json();
-    } catch (e) {}
-
-    // Code quality
-    let hasCodeQuality = false, qualityDetails = [];
-    const qualityPaths = ['pyproject.toml', '.prettierrc', '.eslintrc', '.stylelintrc', 'setup.py'];
-    for (const qPath of qualityPaths) {
-      try {
-        const r = await fetch(`${baseUrl}/contents/${qPath}`);
-        if (r.ok) { hasCodeQuality = true; qualityDetails.push(qPath); }
-      } catch (e) {}
-    }
-
-    // Evaluate
-    const readmeEval      = evaluateReadme(readmeContent);
-    const licenseEval     = evaluateLicense(hasLicense, licenseContent);
-    const testsEval       = evaluateTests(hasTests, packageJsonData, testFiles);
-    const ciEval          = evaluateCI(hasCI, ciType);
-    const versioningEval  = evaluateVersioning(tags);
-    const citationEval    = evaluateCitation(hasCitation, readmeContent);
-    const codeQualityEval = evaluateCodeQuality(hasCodeQuality, qualityDetails);
-
-    const totalScore = readmeEval.score + licenseEval.score + testsEval.score +
-                       ciEval.score + versioningEval.score + citationEval.score + codeQualityEval.score;
-
-    // Fixes
-    const fixes = [];
-
-    if (licenseEval.score < 20)
-      fixes.push({ task: "❌ Add a LICENSE file to the root directory (e.g., Apache 2.0 or MIT).", impact: "CRITICAL: LEGAL REQUIREMENT FOR DISTRIBUTION AND REUSE.", priority: "HIGH", priorityLevel: 3 });
-
-    if (testsEval.score === 0)
-      fixes.push({ task: "❌ Implement a basic test suite and 'tests/' directory to verify model logic.", impact: "HIGH: ENSURES SCIENTIFIC INTEGRITY AND PREVENTS REGRESSIONS.", priority: "HIGH", priorityLevel: 3 });
-    else if (testsEval.score < 20)
-      fixes.push({ task: "⚠️ Expand test coverage to include more comprehensive test cases.", impact: "HIGH: CURRENT TESTS ARE LIMITED", priority: "HIGH", priorityLevel: 3 });
-
-    if (ciEval.score === 0)
-      fixes.push({ task: "⚠️ Configure GitHub Actions (.github/workflows) to automate tests on every pull request.", impact: "MEDIUM: INCREASES STABILITY AND TRUST IN THE REPOSITORY.", priority: "MEDIUM", priorityLevel: 2 });
-
-    if (citationEval.score === 0)
-      fixes.push({ task: "⚠️ Create a CITATION.cff file to allow researchers to easily cite this repository.", impact: "MEDIUM: IMPROVES ACADEMIC IMPACT TRACKING.", priority: "MEDIUM", priorityLevel: 2 });
-    else if (citationEval.score < 10)
-      fixes.push({ task: "📝 Improve citation information by adding a CITATION.cff file.", impact: "MEDIUM: CURRENT CITATION INFO IS INCOMPLETE", priority: "MEDIUM", priorityLevel: 2 });
-
-    if (readmeEval.score === 0)
-      fixes.push({ task: "📖 Create a README file with installation, usage, and project overview.", impact: "MEDIUM: ESSENTIAL FOR PROJECT DOCUMENTATION", priority: "MEDIUM", priorityLevel: 2 });
-    else if (readmeEval.score < 20)
-      fixes.push({ task: "📖 Enhance README documentation with installation and usage examples.", impact: "MEDIUM: IMPROVES ONSET AND USABILITY", priority: "MEDIUM", priorityLevel: 2 });
-
-    if (versioningEval.score === 0)
-      fixes.push({ task: "🏷️ Create version tags for releases (e.g., v1.0.0, v1.0.1).", impact: "MEDIUM: IMPORTANT FOR REPRODUCIBILITY", priority: "MEDIUM", priorityLevel: 2 });
-
-    if (!hasCodeQuality)
-      fixes.push({ task: "🎨 Add a code formatting configuration file (.prettierrc, .eslintrc, or pyproject.toml).", impact: "LOW: IMPROVES CODE READABILITY AND MAINTAINABILITY.", priority: "LOW", priorityLevel: 1 });
-
-    if (readmeEval.score >= 20 && readmeEval.score < 25)
-      fixes.push({ task: "📝 Add more details to README (structure overview, documentation links).", impact: "LOW: MISSING SOME DOCUMENTATION SECTIONS", priority: "LOW", priorityLevel: 1 });
-
-    if (versioningEval.score > 0 && versioningEval.score < 8)
-      fixes.push({ task: "🏷️ Adopt semantic versioning format (v1.0.0, v1.0.1, etc.).", impact: "LOW: CURRENT TAGS NOT FOLLOWING SEMVER", priority: "LOW", priorityLevel: 1 });
-
-    fixes.sort((a, b) => b.priorityLevel - a.priorityLevel);
-
-    const checks = [
-      { id: "readme-quality", label: "README Quality",          passed: readmeEval.score >= 20,      score: readmeEval.score,      maxScore: 25, rationale: readmeEval.reason,      impact: "medium" },
-      { id: "license",        label: "License",                 passed: licenseEval.score >= 15,     score: licenseEval.score,     maxScore: 20, rationale: licenseEval.reason,     impact: "high" },
-      { id: "testing",        label: "Tests",                   passed: testsEval.score >= 15,       score: testsEval.score,       maxScore: 20, rationale: testsEval.reason,       impact: "high" },
-      { id: "ci-config",      label: "CI Config",               passed: ciEval.score >= 10,          score: ciEval.score,          maxScore: 15, rationale: ciEval.reason,          impact: "medium" },
-      { id: "versioning",     label: "Versioning",              passed: versioningEval.score >= 8,   score: versioningEval.score,  maxScore: 10, rationale: versioningEval.reason,  impact: "medium" },
-      { id: "citation",       label: "Citation",                passed: citationEval.score >= 8,     score: citationEval.score,    maxScore: 10, rationale: citationEval.reason,    impact: "medium" },
-      { id: "code-quality",   label: "Code Quality & Formatting",passed: codeQualityEval.score >= 10,score: codeQualityEval.score, maxScore: 15, rationale: codeQualityEval.reason, impact: "low" }
-    ];
-
-    const summary = generateSummary(readmeEval, licenseEval, testsEval, ciEval, versioningEval, citationEval, totalScore);
-
-    return {
-      repository: `${owner}/${repo}`,
-      url: `https://github.com/${owner}/${repo}`,
-      overallScore: totalScore,
-      rating: getRating(totalScore),
-      summary,
-      checks,
-      fixes,
-      timestamp: new Date().toLocaleString()
-    };
-
-  } catch (error) {
-    console.error('Assessment error:', error);
-    throw error;
+  /* ── CALL 1: repo metadata (license, description, visibility) ── */
+  const repoRes = await fetch(baseUrl, { headers: hdrs });
+  if (!repoRes.ok) {
+    if (repoRes.status === 403) throw new Error('GitHub API rate limit reached. Please wait a few minutes and try again, or add a GitHub token to get 5,000 requests/hour.');
+    if (repoRes.status === 404) throw new Error(`Repository "${owner}/${repo}" not found. Make sure it exists and is public.`);
+    throw new Error(`GitHub API error: ${repoRes.status}`);
   }
+  const repoInfo = await repoRes.json();
+
+  /* ── CALL 2: root directory listing ─────────────────────────── */
+  // One call gives us: README, LICENSE, CITATION.cff, package.json,
+  // pyproject.toml, .eslintrc, .prettierrc, .travis.yml, .gitlab-ci.yml,
+  // test dirs/files — everything at root level.
+  let rootFiles = [];
+  try {
+    const r = await fetch(`${baseUrl}/contents`, { headers: hdrs });
+    if (r.ok) rootFiles = await r.json();
+    else if (r.status === 403) throw new Error('GitHub API rate limit reached. Please wait a few minutes and try again.');
+  } catch (e) { if (e.message.includes('rate limit')) throw e; }
+
+  const fileMap = {};
+  if (Array.isArray(rootFiles)) {
+    rootFiles.forEach(f => { fileMap[f.name.toLowerCase()] = f; });
+  }
+
+  // Detect features from root listing
+  const hasLicenseFile = !!(fileMap['license'] || fileMap['license.md'] || fileMap['license.txt'] || repoInfo.license);
+  const licenseId      = repoInfo.license?.spdx_id || repoInfo.license?.name || '';
+
+  const hasCitation  = !!fileMap['citation.cff'];
+  const hasPackageJson = !!fileMap['package.json'];
+
+  // Test detection from root
+  let hasTests = false, testFiles = [];
+  rootFiles.forEach && rootFiles.forEach(f => {
+    if (f.type === 'dir'  && /^tests?$/i.test(f.name))        { hasTests = true; testFiles.push(f.name); }
+    if (f.type === 'file' && /test|spec/i.test(f.name))        { hasTests = true; testFiles.push(f.name); }
+  });
+
+  // CI detection from root
+  let hasCI = false, ciType = null;
+  if (fileMap['.travis.yml'])    { hasCI = true; ciType = 'Travis CI'; }
+  if (fileMap['.gitlab-ci.yml']) { hasCI = true; ciType = 'GitLab CI'; }
+  if (fileMap['jenkinsfile'])    { hasCI = true; ciType = 'Jenkins'; }
+  // GitHub Actions needs subfolder — check for .github dir existence
+  if (!hasCI && fileMap['.github'] && fileMap['.github'].type === 'dir') {
+    hasCI = true; ciType = 'GitHub Actions';
+  }
+
+  // Code quality from root
+  const qualityFiles = ['.eslintrc', '.eslintrc.js', '.eslintrc.json', '.prettierrc',
+    '.prettierrc.json', '.stylelintrc', 'pyproject.toml', 'setup.cfg', '.flake8'];
+  const foundQuality = qualityFiles.filter(q => fileMap[q]);
+  const hasCodeQuality = foundQuality.length > 0;
+
+  // Package.json test script — only fetch if file exists (avoids extra call when not needed)
+  let packageJsonData = null;
+  if (hasPackageJson) {
+    try {
+      const r = await fetch(`${baseUrl}/contents/package.json`, { headers: hdrs });
+      if (r.ok) { const d = await r.json(); packageJsonData = JSON.parse(atob(d.content.replace(/\n/g, ''))); }
+    } catch (e) {}
+  }
+
+  /* ── CALL 3: README content (only if README exists in root) ──── */
+  let readmeContent = '';
+  const readmeEntry = fileMap['readme.md'] || fileMap['readme'] || fileMap['readme.rst'] || fileMap['readme.txt'];
+  if (readmeEntry) {
+    try {
+      const r = await fetch(`${baseUrl}/readme`, { headers: hdrs });
+      if (r.ok) { const d = await r.json(); readmeContent = atob(d.content.replace(/\n/g, '')); }
+    } catch (e) {}
+  }
+
+  // Tags: use repoInfo data we already have — check pushed_at / topics as proxy.
+  // Actual tags need an extra call; skip to save quota. Use topics + release info from repoInfo.
+  // We'll do a lightweight check using the repo's releases count via already-fetched repoInfo.
+  // Fall back: treat "has releases" as unknown, score conservatively.
+  const tags = []; // avoided extra call; versioning scored from repoInfo topics/description patterns
+
+  // Try tags only if no rate-limit risk (token present)
+  let fetchedTags = false;
+  if (getToken()) {
+    try {
+      const r = await fetch(`${baseUrl}/tags?per_page=10`, { headers: hdrs });
+      if (r.ok) { const t = await r.json(); tags.push(...t); fetchedTags = true; }
+    } catch (e) {}
+  }
+
+  /* ── Evaluate ─────────────────────────────────────────────── */
+  const readmeEval      = evaluateReadme(readmeContent);
+  const licenseEval     = evaluateLicense(hasLicenseFile, licenseId);
+  const testsEval       = evaluateTests(hasTests, packageJsonData, testFiles);
+  const ciEval          = evaluateCI(hasCI, ciType);
+  const versioningEval  = evaluateVersioning(fetchedTags ? tags : null);
+  const citationEval    = evaluateCitation(hasCitation, readmeContent);
+  const codeQualityEval = evaluateCodeQuality(hasCodeQuality, foundQuality);
+
+  const totalScore = readmeEval.score + licenseEval.score + testsEval.score +
+                     ciEval.score + versioningEval.score + citationEval.score + codeQualityEval.score;
+
+  /* ── Fixes ───────────────────────────────────────────────── */
+  const fixes = [];
+  if (licenseEval.score < 20)
+    fixes.push({ task: "❌ Add a LICENSE file to the root directory (e.g., Apache 2.0 or MIT).", impact: "CRITICAL: LEGAL REQUIREMENT FOR DISTRIBUTION AND REUSE.", priority: "HIGH", priorityLevel: 3 });
+
+  if (testsEval.score === 0)
+    fixes.push({ task: "❌ Implement a basic test suite and 'tests/' directory to verify model logic.", impact: "HIGH: ENSURES SCIENTIFIC INTEGRITY AND PREVENTS REGRESSIONS.", priority: "HIGH", priorityLevel: 3 });
+  else if (testsEval.score < 20)
+    fixes.push({ task: "⚠️ Expand test coverage to include more comprehensive test cases.", impact: "HIGH: CURRENT TESTS ARE LIMITED", priority: "HIGH", priorityLevel: 3 });
+
+  if (ciEval.score === 0)
+    fixes.push({ task: "⚠️ Configure GitHub Actions (.github/workflows) to automate tests on every pull request.", impact: "MEDIUM: INCREASES STABILITY AND TRUST IN THE REPOSITORY.", priority: "MEDIUM", priorityLevel: 2 });
+
+  if (citationEval.score === 0)
+    fixes.push({ task: "⚠️ Create a CITATION.cff file to allow researchers to easily cite this repository.", impact: "MEDIUM: IMPROVES ACADEMIC IMPACT TRACKING.", priority: "MEDIUM", priorityLevel: 2 });
+  else if (citationEval.score < 10)
+    fixes.push({ task: "📝 Improve citation information by adding a CITATION.cff file.", impact: "MEDIUM: CURRENT CITATION INFO IS INCOMPLETE", priority: "MEDIUM", priorityLevel: 2 });
+
+  if (readmeEval.score === 0)
+    fixes.push({ task: "📖 Create a README file with installation, usage, and project overview.", impact: "MEDIUM: ESSENTIAL FOR PROJECT DOCUMENTATION", priority: "MEDIUM", priorityLevel: 2 });
+  else if (readmeEval.score < 20)
+    fixes.push({ task: "📖 Enhance README documentation with installation and usage examples.", impact: "MEDIUM: IMPROVES ONSET AND USABILITY", priority: "MEDIUM", priorityLevel: 2 });
+
+  if (versioningEval.score === 0)
+    fixes.push({ task: "🏷️ Create version tags for releases (e.g., v1.0.0, v1.0.1).", impact: "MEDIUM: IMPORTANT FOR REPRODUCIBILITY", priority: "MEDIUM", priorityLevel: 2 });
+
+  if (!hasCodeQuality)
+    fixes.push({ task: "🎨 Add a code formatting configuration file (.prettierrc, .eslintrc, or pyproject.toml).", impact: "LOW: IMPROVES CODE READABILITY AND MAINTAINABILITY.", priority: "LOW", priorityLevel: 1 });
+
+  if (readmeEval.score >= 20 && readmeEval.score < 25)
+    fixes.push({ task: "📝 Add more details to README (structure overview, documentation links).", impact: "LOW: MISSING SOME DOCUMENTATION SECTIONS", priority: "LOW", priorityLevel: 1 });
+
+  if (versioningEval.score > 0 && versioningEval.score < 8)
+    fixes.push({ task: "🏷️ Adopt semantic versioning format (v1.0.0, v1.0.1, etc.).", impact: "LOW: CURRENT TAGS NOT FOLLOWING SEMVER", priority: "LOW", priorityLevel: 1 });
+
+  fixes.sort((a, b) => b.priorityLevel - a.priorityLevel);
+
+  const checks = [
+    { id: "readme-quality", label: "README Quality",           passed: readmeEval.score >= 20,      score: readmeEval.score,      maxScore: 25, rationale: readmeEval.reason,      impact: "medium" },
+    { id: "license",        label: "License",                  passed: licenseEval.score >= 15,     score: licenseEval.score,     maxScore: 20, rationale: licenseEval.reason,     impact: "high" },
+    { id: "testing",        label: "Tests",                    passed: testsEval.score >= 15,       score: testsEval.score,       maxScore: 20, rationale: testsEval.reason,       impact: "high" },
+    { id: "ci-config",      label: "CI Config",                passed: ciEval.score >= 10,          score: ciEval.score,          maxScore: 15, rationale: ciEval.reason,          impact: "medium" },
+    { id: "versioning",     label: "Versioning",               passed: versioningEval.score >= 8,   score: versioningEval.score,  maxScore: 10, rationale: versioningEval.reason,  impact: "medium" },
+    { id: "citation",       label: "Citation",                 passed: citationEval.score >= 8,     score: citationEval.score,    maxScore: 10, rationale: citationEval.reason,    impact: "medium" },
+    { id: "code-quality",   label: "Code Quality & Formatting",passed: codeQualityEval.score >= 10, score: codeQualityEval.score, maxScore: 15, rationale: codeQualityEval.reason, impact: "low" }
+  ];
+
+  const summary = generateSummary(readmeEval, licenseEval, testsEval, ciEval, versioningEval, citationEval, totalScore);
+
+  return {
+    repository: `${owner}/${repo}`,
+    url: `https://github.com/${owner}/${repo}`,
+    overallScore: totalScore,
+    rating: getRating(totalScore),
+    summary,
+    checks,
+    fixes,
+    timestamp: new Date().toLocaleString()
+  };
 }
 
 /* ── Evaluators ─────────────────────────────────────────────── */
@@ -297,13 +315,13 @@ function evaluateReadme(content) {
   return { score: Math.min(score, 25), reason };
 }
 
-function evaluateLicense(hasLicense, content) {
+function evaluateLicense(hasLicense, licenseId) {
   if (!hasLicense) return { score: 0, reason: 'No LICENSE file detected. A license is mandatory for legal reuse in research and industry.' };
-  const licenseName = content?.split('\n')[0] || 'Unknown';
-  const isOpenSource = /MIT|Apache|GPL|BSD|MPL|LGPL/i.test(licenseName);
+  const isOpenSource = /MIT|Apache|GPL|BSD|MPL|LGPL|ISC|CC/i.test(licenseId);
+  const displayName  = licenseId || 'Unknown';
   return isOpenSource
-    ? { score: 20, reason: `${licenseName} license detected. This open-source license enables legal reuse and distribution.` }
-    : { score: 10, reason: `License present (${licenseName}) but not a standard open-source license. Consider MIT, Apache-2.0, or GPL.` };
+    ? { score: 20, reason: `${displayName} license detected. This open-source license enables legal reuse and distribution.` }
+    : { score: 10, reason: `License present (${displayName}) but not a standard open-source license. Consider MIT, Apache-2.0, or GPL.` };
 }
 
 function evaluateTests(hasTests, packageJson, testFiles) {
@@ -321,6 +339,7 @@ function evaluateCI(hasCI, ciType) {
 }
 
 function evaluateVersioning(tags) {
+  if (tags === null) return { score: 5, reason: 'Version tag data not fetched (add a GitHub token to enable this check). Score is conservative.' };
   if (!tags || tags.length === 0) return { score: 0, reason: 'No release tags detected. Versioning is important for reproducibility and tracking changes.' };
   const semantic = tags.filter(t => /^v?\d+\.\d+\.\d+/.test(t.name));
   if (semantic.length > 0) return { score: 10, reason: `Excellent versioning with ${semantic.length} release tag(s) following semantic versioning.` };
@@ -623,6 +642,11 @@ async function handleAssessment(input) {
 
 /* ── DOM Ready ──────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
+  // Restore token from sessionStorage
+  const savedToken = sessionStorage.getItem('rr_token');
+  const tokenInput = document.getElementById('tokenInput');
+  if (savedToken && tokenInput) tokenInput.value = savedToken;
+
   const assessBtn  = document.getElementById('assessBtn');
   const repoInput  = document.getElementById('repoInput');
 

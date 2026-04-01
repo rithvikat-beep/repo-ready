@@ -21,6 +21,25 @@
   --font-mono:   'JetBrains Mono', monospace;
 }
 
+body.light {
+  --bg:          #f0f4ff;
+  --surface:     #ffffff;
+  --surface2:    #e8eef8;
+  --border:      rgba(59, 130, 246, 0.15);
+  --border-h:    rgba(59, 130, 246, 0.4);
+  --blue-glow:   rgba(59, 130, 246, 0.15);
+  --text:        #0f1c2e;
+  --muted:       #5a7090;
+  --white:       #0f1c2e;
+}
+body.light #canvas-bg { opacity: 0.12; }
+body.light nav { background: rgba(240,244,255,0.85); }
+body.light .score-card,
+body.light .assessment-card,
+body.light .fixes-section { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+body.light .toggle-pill { background: #94a3b8; }
+body.light .toggle-pill.active { background: var(--blue); }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -231,6 +250,78 @@ h1 span {
 }
 .search-hint span { margin: 0 7px; opacity: 0.4; }
 
+/* ── TOKEN ROW ──────────────────────────────────────────── */
+.token-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.token-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: rgba(15, 28, 46, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.token-box:focus-within {
+  border-color: rgba(96,165,250,0.4);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.12);
+}
+
+.token-icon {
+  width: 14px; height: 14px;
+  margin: 0 10px 0 13px;
+  flex-shrink: 0;
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.token-box input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text);
+  padding: 10px 0;
+  min-width: 0;
+}
+.token-box input::placeholder { color: var(--muted); opacity: 0.6; }
+
+.token-toggle {
+  background: none;
+  border: none;
+  padding: 0 11px;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.token-toggle svg { width: 14px; height: 14px; transition: opacity 0.2s; }
+.token-toggle:hover svg { color: var(--blue-bright); }
+
+.token-help {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--blue-bright);
+  text-decoration: none;
+  white-space: nowrap;
+  opacity: 0.75;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+.token-help:hover { opacity: 1; }
+
 /* ── LOADING ────────────────────────────────────────── */
 #loading {
   display: none;
@@ -302,6 +393,18 @@ h1 span {
   background: var(--surface);
   border-color: var(--border-h);
   transform: translateY(-1px);
+}
+
+.report-btn-new {
+  background: rgba(59,130,246,0.12);
+  border-color: rgba(59,130,246,0.35);
+  color: var(--blue-bright);
+  font-weight: 600;
+}
+.report-btn-new:hover {
+  background: rgba(59,130,246,0.2);
+  border-color: var(--blue);
+  color: var(--white);
 }
 
 /* Score Card */
